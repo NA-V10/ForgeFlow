@@ -1,0 +1,111 @@
+# Agent B: optimize database queries.
+# Replaces an N+1 query with a JOIN, adds indexes, and changes find_user's contract
+# (inactive users are now hidden unless requested), the change that later
+# semantically conflicts with Agent A's authentication work.
+model: scripted-playbook
+model_version: db-v1
+message: Remove N+1 in list_orders, add indexes, hide inactive users
+validate: [pytest, -q, -p, no:cacheprovider]
+steps:
+  - replace:
+      path: app/db.py
+      old: |2
+            password_hash TEXT NOT NULL
+        );
+      new: |2
+            password_hash TEXT NOT NULL,
+            active INTEGER NOT NULL DEFAULT 1
+        );
+  - replace:
+      path: app/db.py
+      old: |2
+            quantity INTEGER NOT NULL
+        );
+        """
+      new: |2
+            quantity INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ix_orders_user_id ON orders(user_id);
+        CREATE INDEX IF NOT EXISTS ix_order_items_order_id ON order_items(order_id);
+        """
+  - replace:
+      path: app/db.py
+      old: |
+        def find_user(conn, username):
+            return conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+      new: |
+        def find_user(conn, username, *, include_inactive=False):
+            query = "SELECT * FROM users WHERE username = ?"
+            if not include_inactive:
+                query += " AND active = 1"
+            return conn.execute(query, (username,)).fetchone()
+
+
+        def deactivate_user(conn, username):
+            conn.execute("UPDATE users SET active = 0 WHERE username = ?", (username,))
+  - replace:
+      path: app/db.py
+      old: |
+        def list_orders(conn, user_id):
+            orders = conn.execute("SELECT * FROM orders WHERE user_id = ? ORDER BY id", (user_id,)).fetchall()
+            result = []
+            for order in orders:
+                items = conn.execute("SELECT sku, quantity FROM order_items WHERE order_id = ? ORDER BY id",
+                                     (order["id"],)).fetchall()
+                result.append({"id": order["id"], "total": order["total"], "items": [dict(i) for i in items]})
+            return result
+      new: |
+        def list_orders(conn, user_id):
+            rows = conn.execute(
+                """
+                SELECT o.id AS order_id, o.total, i.sku, i.quantity
+                FROM orders o LEFT JOIN order_items i ON i.order_id = o.id
+                WHERE o.user_id = ?
+                ORDER BY o.id, i.id
+                """,
+                (user_id,),
+            ).fetchall()
+            result, by_id = [], {}
+            for row in rows:
+                order = by_id.get(row["order_id"])
+                if order is None:
+                    order = by_id[row["order_id"]] = {"id": row["order_id"], "total": row["total"], "items": []}
+                    result.append(order)
+                if row["sku"] is not None:
+                    order["items"].append({"sku": row["sku"], "quantity": row["quantity"]})
+            return result
+  - write:
+      path: migrations/002_indexes_and_active_users.sql
+      content: |
+        ALTER TABLE users ADD COLUMN active INTEGER NOT NULL DEFAULT 1;
+        CREATE INDEX ix_orders_user_id ON orders(user_id);
+        CREATE INDEX ix_order_items_order_id ON order_items(order_id);
+  - write:
+      path: tests/test_db.py
+      content: |
+        from app import db
+
+
+        def seed():
+            conn = db.connect()
+            uid = db.create_user(conn, "alice", "x")
+            db.create_order(conn, uid, [("apple", 2, 1.5), ("pear", 1, 2.0)])
+            db.create_order(conn, uid, [("plum", 3, 1.0)])
+            return conn, uid
+
+
+        def test_list_orders_uses_a_single_query():
+            conn, uid = seed()
+            statements = []
+            conn.set_trace_callback(statements.append)
+            orders = db.list_orders(conn, uid)
+            assert [len(o["items"]) for o in orders] == [2, 1]
+            assert orders[0]["total"] == 5.0
+            assert len([s for s in statements if s.lstrip().upper().startswith("SELECT")]) == 1
+
+
+        def test_inactive_users_are_hidden_by_default():
+            conn, _ = seed()
+            db.deactivate_user(conn, "alice")
+            assert db.find_user(conn, "alice") is None
+            assert db.find_user(conn, "alice", include_inactive=True)["username"] == "alice"

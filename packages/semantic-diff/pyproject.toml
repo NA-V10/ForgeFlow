@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ff-semantic"
+version = "0.1.0"
+description = "ForgeFlow AST-aware semantic diff and conflict detection"
+requires-python = ">=3.12"
+dependencies = ["tree-sitter>=0.23", "tree-sitter-python>=0.23", "tree-sitter-javascript>=0.23", "tree-sitter-typescript>=0.23", "pyyaml>=6"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

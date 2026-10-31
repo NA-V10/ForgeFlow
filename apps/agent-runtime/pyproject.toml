@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "forgeflow-runtime"
+version = "0.1.0"
+description = "ForgeFlow agent runtime (LangGraph-compatible graph, scripted and Claude-backed agents)"
+requires-python = ">=3.12"
+dependencies = ["ff-agent-sdk", "pyyaml>=6"]
+
+[project.optional-dependencies]
+llm = ["anthropic>=1.0"]
+langgraph = ["langgraph>=0.2"]
+
+[project.scripts]
+forgeflow-agent = "forgeflow_runtime.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

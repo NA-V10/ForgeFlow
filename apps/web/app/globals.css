@@ -1,0 +1,133 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * ForgeFlow design tokens.
+ * Graphite surfaces, an ember accent for human actions and focus, and a cyan "agent" hue
+ * reserved for machine identity and live agent activity. Status colors are separate from both.
+ */
+:root {
+  --font-sans: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, ui-monospace, monospace;
+
+  --background: 220 20% 99%;
+  --foreground: 225 14% 10%;
+  --panel: 220 16% 97%;
+  --elevated: 0 0% 100%;
+  --muted: 220 14% 93.5%;
+  --muted-foreground: 222 8% 44%;
+  --accent: 220 14% 91%;
+  --accent-foreground: 225 14% 10%;
+  --border: 220 13% 88%;
+  --input: 220 12% 84%;
+  --ring: 20 92% 50%;
+  --primary: 20 92% 50%;
+  --primary-foreground: 0 0% 100%;
+  --agent: 186 80% 34%;
+  --destructive: 356 72% 50%;
+  --destructive-foreground: 0 0% 100%;
+  --success: 152 62% 33%;
+  --warning: 36 92% 40%;
+  --info: 212 80% 46%;
+  --diff-add: 140 60% 93%;
+  --diff-del: 0 80% 95%;
+  --shadow: 220 30% 20%;
+}
+
+.dark {
+  --background: 225 13% 4.6%;
+  --foreground: 220 14% 91%;
+  --panel: 225 11% 6.6%;
+  --elevated: 225 10% 8.6%;
+  --muted: 225 9% 11.5%;
+  --muted-foreground: 223 7% 55%;
+  --accent: 225 9% 13%;
+  --accent-foreground: 220 14% 96%;
+  --border: 225 8% 13.5%;
+  --input: 225 7% 19%;
+  --ring: 22 96% 58%;
+  --primary: 22 96% 57%;
+  --primary-foreground: 20 30% 8%;
+  --agent: 182 70% 52%;
+  --destructive: 357 78% 63%;
+  --destructive-foreground: 0 0% 100%;
+  --success: 150 55% 50%;
+  --warning: 40 95% 58%;
+  --info: 212 92% 66%;
+  --diff-add: 145 40% 12%;
+  --diff-del: 356 40% 13.5%;
+  --shadow: 0 0% 0%;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    font-size: 14px;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-size: 13px;
+    font-feature-settings: "cv11", "ss01", "ss03";
+  }
+  ::selection {
+    @apply bg-primary/30;
+  }
+  :focus-visible {
+    outline: none;
+  }
+}
+
+@layer components {
+  .diff-add {
+    background: hsl(var(--diff-add));
+  }
+  .diff-del {
+    background: hsl(var(--diff-del));
+  }
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+  .row {
+    @apply flex h-9 items-center gap-3 border-b border-border/60 px-4 text-[13px] transition-colors hover:bg-accent/50;
+  }
+  .row[data-active="true"] {
+    @apply bg-accent;
+    box-shadow: inset 2px 0 0 hsl(var(--primary));
+  }
+  .eyebrow {
+    @apply text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground;
+  }
+  .panel-shadow {
+    box-shadow: 0 1px 0 hsl(var(--foreground) / 0.03) inset, 0 12px 32px -16px hsl(var(--shadow) / 0.45);
+  }
+}
+
+@keyframes ff-pulse-ring {
+  0% { box-shadow: 0 0 0 0 hsl(var(--agent) / 0.55); }
+  100% { box-shadow: 0 0 0 6px hsl(var(--agent) / 0); }
+}
+.live-dot {
+  animation: ff-pulse-ring 1.6s ease-out infinite;
+}
+
+@keyframes ff-shimmer {
+  from { background-position: -200% 0; }
+  to { background-position: 200% 0; }
+}
+.working-bar {
+  background: linear-gradient(90deg, transparent, hsl(var(--agent) / 0.55), transparent);
+  background-size: 200% 100%;
+  animation: ff-shimmer 1.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot, .working-bar, .animate-pulse, .animate-spin { animation: none !important; }
+}
+
+.react-flow__attribution {
+  display: none;
+}

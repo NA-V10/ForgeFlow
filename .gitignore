@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.forgeflow*/
+node_modules/
+apps/web/.next/
+apps/web/test-results/
+apps/web/playwright-report/
+*.tsbuildinfo
+.env

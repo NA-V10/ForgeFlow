@@ -1,0 +1,51 @@
+# Agent C: add test coverage for the HTTP layer. Low risk, test-only change.
+model: scripted-playbook
+model_version: tests-v1
+message: Add HTTP-level tests for health, login and routing
+validate: [pytest, -q, -p, no:cacheprovider]
+steps:
+  - write:
+      path: tests/test_server.py
+      content: |
+        from app import auth, db, server
+
+
+        def fresh():
+            server.STATE["conn"] = db.connect()
+            db.create_user(server.STATE["conn"], "alice", auth.hash_password("pw"))
+
+
+        def test_health():
+            assert server.app.handle("GET", "/health") == (200, {"status": "ok"})
+
+
+        def test_login_rejects_bad_password():
+            fresh()
+            status, body = server.app.handle("POST", "/login", {"username": "alice", "password": "wrong"})
+            assert status == 401 and body["error"] == "invalid credentials"
+
+
+        def test_login_accepts_good_password():
+            fresh()
+            status, body = server.app.handle("POST", "/login", {"username": "alice", "password": "pw"})
+            assert status == 200 and body["user"] == "alice"
+
+
+        def test_unknown_route_is_404():
+            assert server.app.handle("GET", "/nope")[0] == 404
+  - write:
+      path: tests/test_web.py
+      content: |
+        from app.web import App
+
+
+        def test_route_registration_and_methods():
+            app = App()
+
+            @app.route("/x", methods=["GET", "POST"])
+            def handler(body, headers):
+                return 200, {"ok": True}
+
+            assert app.handle("GET", "/x") == (200, {"ok": True})
+            assert app.handle("POST", "/x") == (200, {"ok": True})
+            assert app.handle("DELETE", "/x")[0] == 404

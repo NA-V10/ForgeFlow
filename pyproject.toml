@@ -1,0 +1,15 @@
+# Workspace-level tooling configuration. Each package under packages/ and apps/ has its own pyproject.toml.
+
+[tool.pytest.ini_options]
+testpaths = [
+  "packages/version-engine/tests", "packages/semantic-diff/tests", "packages/risk-engine/tests",
+  "packages/policy-engine/tests", "packages/provenance/tests", "packages/sandbox/tests",
+  "packages/merge-engine/tests", "apps/api/tests", "apps/agent-runtime/tests", "apps/cli/tests", "tests",
+]
+addopts = "-p no:cacheprovider --import-mode=importlib"
+filterwarnings = ["ignore::DeprecationWarning", "ignore:.*httpx.*:Warning"]
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"

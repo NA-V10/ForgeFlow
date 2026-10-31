@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "forgeflow-cli"
+version = "0.1.0"
+description = "forge: the ForgeFlow command line"
+requires-python = ">=3.12"
+dependencies = ["typer>=0.12", "rich>=13", "websockets>=12", "ff-agent-sdk", "forgeflow-runtime"]
+
+[project.scripts]
+forge = "forgeflow_cli.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

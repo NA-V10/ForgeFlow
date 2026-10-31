@@ -1,0 +1,6 @@
+app:
+  name: demo-shop
+  debug: false
+database:
+  path: shop.db
+  pool_size: 5

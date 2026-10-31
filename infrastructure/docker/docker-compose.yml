@@ -1,0 +1,86 @@
+# Production-shaped stack: PostgreSQL (metadata), Redis (event fan-out), MinIO (artifacts),
+# the API, the web dashboard, and the sandbox image used for agent commands.
+#
+#   docker compose -f infrastructure/docker/docker-compose.yml up --build
+#
+name: forgeflow
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: forgeflow
+      POSTGRES_USER: forgeflow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-forgeflow}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../postgres/init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forgeflow"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    volumes:
+      - ../redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-forgeflow}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-forgeflow-secret}
+    volumes:
+      - minio:/data
+    ports: ["9001:9001"]
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      retries: 10
+
+  sandbox-image:
+    # Built once so the API can `docker run` it for agent commands; exits immediately.
+    build: { context: ../.., dockerfile: infrastructure/docker/sandbox.Dockerfile }
+    image: forgeflow/sandbox:latest
+    command: ["true"]
+
+  api:
+    build: { context: ../.., dockerfile: infrastructure/docker/api.Dockerfile }
+    environment:
+      FORGEFLOW_DATABASE_URL: postgresql+psycopg://forgeflow:${POSTGRES_PASSWORD:-forgeflow}@postgres:5432/forgeflow
+      FORGEFLOW_REDIS_URL: redis://redis:6379/0
+      FORGEFLOW_S3_ENDPOINT: http://minio:9000
+      FORGEFLOW_S3_ACCESS_KEY: ${MINIO_ROOT_USER:-forgeflow}
+      FORGEFLOW_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-forgeflow-secret}
+      FORGEFLOW_DATA_DIR: /var/lib/forgeflow
+      FORGEFLOW_SANDBOX: docker
+      FORGEFLOW_AUTH_MODE: ${FORGEFLOW_AUTH_MODE:-token}
+      FORGEFLOW_ADMIN_TOKEN: ${FORGEFLOW_ADMIN_TOKEN:?set FORGEFLOW_ADMIN_TOKEN}
+    volumes:
+      # repositories and worktrees; the same host path must be visible to the Docker daemon
+      # because sandbox containers bind-mount worktrees from it
+      - /var/lib/forgeflow:/var/lib/forgeflow
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      sandbox-image: { condition: service_completed_successfully }
+    ports: ["8000:8000"]
+
+  web:
+    build: { context: ../.., dockerfile: infrastructure/docker/web.Dockerfile }
+    environment:
+      FORGEFLOW_API_URL: http://api:8000
+    depends_on: [api]
+    ports: ["3000:3000"]
+
+volumes:
+  pgdata:
+  minio:

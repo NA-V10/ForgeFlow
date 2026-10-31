@@ -1,0 +1,136 @@
+# Agent A: implement token-based authentication.
+# Touches security-sensitive code, the public API, configuration and dependencies.
+model: scripted-playbook
+model_version: auth-v1
+message: Add signed session tokens and protect /orders
+validate: [pytest, -q, -p, no:cacheprovider]
+steps:
+  - replace:
+      path: app/auth.py
+      old: |
+        import hashlib
+
+        from app import db
+      new: |
+        import base64
+        import hashlib
+        import hmac
+        import json
+        import os
+        import time
+
+        from app import db
+
+        try:  # optional: use PyJWT when installed, fall back to HMAC-signed tokens
+            import jwt
+        except ImportError:  # pragma: no cover
+            jwt = None
+
+        TOKEN_TTL_SECONDS = 3600
+
+
+        def _secret():
+            return os.environ.get("SHOP_SECRET_KEY", "dev-secret").encode()
+  - replace:
+      path: app/auth.py
+      old: |
+        def authenticate(conn, username, password):
+            user = db.find_user(conn, username)
+            if user is None:
+                return None
+            if user["password_hash"] != hash_password(password):
+                return None
+            return user
+      new: |
+        def authenticate(conn, username, password):
+            user = db.find_user(conn, username)
+            if user is None:
+                return None
+            if not hmac.compare_digest(user["password_hash"], hash_password(password)):
+                return None
+            return user
+
+
+        def issue_token(username, now=None):
+            payload = {"sub": username, "exp": int((now or time.time()) + TOKEN_TTL_SECONDS)}
+            body = base64.urlsafe_b64encode(json.dumps(payload, sort_keys=True).encode()).decode()
+            signature = hmac.new(_secret(), body.encode(), hashlib.sha256).hexdigest()
+            return f"{body}.{signature}"
+
+
+        def verify_token(token, now=None):
+            try:
+                body, signature = token.rsplit(".", 1)
+            except (AttributeError, ValueError):
+                return None
+            expected = hmac.new(_secret(), body.encode(), hashlib.sha256).hexdigest()
+            if not hmac.compare_digest(signature, expected):
+                return None
+            payload = json.loads(base64.urlsafe_b64decode(body.encode()))
+            if payload["exp"] < (now or time.time()):
+                return None
+            return payload["sub"]
+
+
+        def require_auth(headers):
+            header = headers.get("Authorization", "")
+            if not header.startswith("Bearer "):
+                return None
+            return verify_token(header[len("Bearer "):])
+  - replace:
+      path: app/server.py
+      old: |2
+            return 200, {"user": user["username"]}
+      new: |2
+            return 200, {"user": user["username"], "token": auth.issue_token(user["username"])}
+  - replace:
+      path: app/server.py
+      old: |
+        @app.get("/orders")
+        def orders(body, headers):
+            user_id = int(headers.get("X-User-Id", 0))
+            return 200, {"orders": db.list_orders(get_conn(), user_id)}
+      new: |
+        @app.get("/orders")
+        def orders(body, headers):
+            username = auth.require_auth(headers)
+            if username is None:
+                return 401, {"error": "authentication required"}
+            user = db.find_user(get_conn(), username)
+            return 200, {"orders": db.list_orders(get_conn(), user["id"])}
+  - append:
+      path: requirements.txt
+      content: |
+        pyjwt==2.9.0
+  - append:
+      path: config/settings.yaml
+      content: |
+        auth:
+          token_ttl_seconds: 3600
+          secret_key_env: SHOP_SECRET_KEY
+  - write:
+      path: tests/test_tokens.py
+      content: |
+        from app import auth, db, server
+
+
+        def test_token_roundtrip():
+            token = auth.issue_token("alice", now=1000)
+            assert auth.verify_token(token, now=1001) == "alice"
+
+
+        def test_expired_and_tampered_tokens_are_rejected():
+            token = auth.issue_token("alice", now=1000)
+            assert auth.verify_token(token, now=1000 + auth.TOKEN_TTL_SECONDS + 1) is None
+            assert auth.verify_token(token[:-1] + "0", now=1001) is None
+            assert auth.verify_token("garbage") is None
+
+
+        def test_orders_require_a_token():
+            server.STATE["conn"] = db.connect()
+            db.create_user(server.STATE["conn"], "alice", auth.hash_password("pw"))
+            assert server.app.handle("GET", "/orders")[0] == 401
+            status, body = server.app.handle("POST", "/login", {"username": "alice", "password": "pw"})
+            assert status == 200
+            status, _ = server.app.handle("GET", "/orders", headers={"Authorization": f"Bearer {body['token']}"})
+            assert status == 200
